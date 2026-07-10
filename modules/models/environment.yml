@@ -1,0 +1,10 @@
+name: models
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.12
+  - scanpy>=1.11
+  - pip
+  - pip:
+    - git+https://github.com/theislab/scarches.git@master
