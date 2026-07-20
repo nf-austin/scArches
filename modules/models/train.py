@@ -13,8 +13,11 @@ def train(
     celltype_obs: str,
     n_hvgs: int,
     max_epochs: int,
-    finetune_epochs: int = 20
+    finetune_epochs: int = 20,
+    use_gpu: bool = False
 ):
+    accelerator = "gpu" if use_gpu else "cpu"
+
     # Ensure raw counts are stored in .layers["counts"] as required by scvi-tools
     if "counts" not in adata.layers:
         adata.layers["counts"] = adata.X.copy()
@@ -50,7 +53,7 @@ def train(
             use_layer_norm="both",
             use_batch_norm="none",
         )
-        model.train(max_epochs=max_epochs, early_stopping=True)
+        model.train(max_epochs=max_epochs, early_stopping=True, accelerator=accelerator)
     elif model_type == "scanvi":
         sca.models.SCVI.setup_anndata(
             adata,
@@ -66,14 +69,14 @@ def train(
             use_layer_norm="both",
             use_batch_norm="none",
         )
-        model.train(max_epochs=max_epochs, early_stopping=True)
+        model.train(max_epochs=max_epochs, early_stopping=True, accelerator=accelerator)
         model = sca.models.SCANVI.from_scvi_model(
             model,
             unlabeled_category="Unknown",
         )
         print("Labelled Indices: ", len(model._labeled_indices))
         print("Unlabelled Indices: ", len(model._unlabeled_indices))
-        model.train(max_epochs=finetune_epochs)
+        model.train(max_epochs=finetune_epochs, accelerator=accelerator)
     elif model_type == "scpoli":
         model = sca.models.scPoli(
             adata,
@@ -86,6 +89,7 @@ def train(
             n_epochs=max_epochs,  # Should be 100 for scPoli
             pretraining_epochs=max_epochs - max_epochs // 5,
             eta=5,
+            use_gpu=use_gpu,
             early_stopping_kwargs={
                 "early_stopping_metric": "val_prototype_loss",
                 "mode": "min",
@@ -112,6 +116,7 @@ def main():
     parser.add_argument("--n_hvgs", type=int, default=3000)
     parser.add_argument("--max_epochs", type=int, default=400)
     parser.add_argument("--finetune_epochs", type=int, default=20)
+    parser.add_argument("--use_gpu", action="store_true", help="Train on GPU instead of CPU.")
     args = parser.parse_args()
 
     train(
@@ -122,7 +127,8 @@ def main():
         args.celltype_obs,
         args.n_hvgs,
         args.max_epochs,
-        args.finetune_epochs
+        args.finetune_epochs,
+        args.use_gpu
     )
 
 

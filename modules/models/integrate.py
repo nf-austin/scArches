@@ -13,8 +13,11 @@ def integrate(
     in_model: str,
     model_type: str,
     celltype_obs: str,
-    max_epochs: int
+    max_epochs: int,
+    use_gpu: bool = False
 ):
+    accelerator = "gpu" if use_gpu else "cpu"
+
     orig_adata = adata.copy()
 
     # Ensure raw counts are stored in .layers["counts"] as required by scvi-tools
@@ -24,7 +27,7 @@ def integrate(
     if model_type == "scvi":
         sca.models.SCVI.prepare_query_anndata(adata, in_model)
         query_model = sca.models.SCVI.load_query_data(adata, in_model, freeze_dropout=True)
-        query_model.train(max_epochs=max_epochs, plan_kwargs={"weight_decay": 0.0})  # Heavy regularization
+        query_model.train(max_epochs=max_epochs, plan_kwargs={"weight_decay": 0.0}, accelerator=accelerator)  # Heavy regularization
         latent_key = "X_scVI"
         orig_adata.obsm[latent_key] = query_model.get_latent_representation()
         # TODO: scarches weighted knn model to transfer from reference to query
@@ -33,7 +36,7 @@ def integrate(
         query_model = sca.models.SCANVI.load_query_data(adata, in_model, freeze_dropout=True)
         query_model._unlabeled_indices = np.arange(adata.n_obs)
         query_model._labeled_indices = []
-        query_model.train(max_epochs=max_epochs, plan_kwargs={"weight_decay": 0.0}, check_val_every_n_epoch=10)  # Heavy regularization
+        query_model.train(max_epochs=max_epochs, plan_kwargs={"weight_decay": 0.0}, check_val_every_n_epoch=10, accelerator=accelerator)  # Heavy regularization
         latent_key = "X_scANVI"
         orig_adata.obsm[latent_key] = query_model.get_latent_representation()
         # soft=True forces the network to return a DataFrame of softmax class probabilities
@@ -43,7 +46,7 @@ def integrate(
     elif model_type == "scpoli":
         # labeled_indices=[] signifies the entire query is unannotated
         query_model = sca.model.scPoli.load_query_data(adata, in_model, labeled_indices=[])
-        query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10)
+        query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, use_gpu=use_gpu)
         results = query_model.classify(
             adata,
             scale_uncertainties=True
@@ -67,6 +70,7 @@ def main():
     parser.add_argument("--model_type", default="scvi", choices=["scvi", "scanvi", "scpoli"])
     parser.add_argument("--celltype_obs", required=True)
     parser.add_argument("--max_epochs", type=int, default=200)
+    parser.add_argument("--use_gpu", action="store_true", help="Integrate on GPU instead of CPU.")
     args = parser.parse_args()
 
     integrate(
@@ -75,7 +79,8 @@ def main():
         args.in_model,
         args.model_type,
         args.celltype_obs,
-        args.max_epochs
+        args.max_epochs,
+        args.use_gpu
     )
 
 

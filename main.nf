@@ -32,7 +32,8 @@ workflow {
             params.celltype_obs,
             params.n_hvgs,
             params.train_max_epochs,
-            params.finetune_epochs
+            params.finetune_epochs,
+            params.use_gpu
         )
         COMPRESS(TRAIN_MODEL.out.model_dir)
         ch_model_dir = TRAIN_MODEL.out.model_dir.first()
@@ -50,7 +51,8 @@ workflow {
         ch_model_dir,
         model_type,
         params.celltype_obs,
-        params.integrate_max_epochs
+        params.integrate_max_epochs,
+        params.use_gpu
     )
 
     APPLY_MODEL.out.h5ad

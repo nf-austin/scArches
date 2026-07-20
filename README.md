@@ -25,6 +25,8 @@ SCANVI/scPoli) cell type labels.
 
 - Nextflow >= 24.04.0
 - Docker, Singularity, or Conda
+- For `--use_gpu true`: a CUDA-capable GPU and, for the `docker`/`singularity` profiles, the
+  NVIDIA Container Toolkit (or equivalent) so the container runtime can pass the GPU through
 
 ## Model reuse
 
@@ -71,6 +73,7 @@ nextflow run nf-austin/scArches \
 | `--train_max_epochs` | `400` | Max training epochs for `TRAIN_MODEL`. |
 | `--finetune_epochs` | `20` | SCANVI fine-tuning epochs after the SCVI pretraining stage. |
 | `--integrate_max_epochs` | `200` | Max epochs for `APPLY_MODEL`'s query mapping. |
+| `--use_gpu` | `false` | Train/apply on GPU instead of CPU. Adds `--gpus all`/`--nv` to the `docker`/`singularity` profiles and requests an `accelerator` on cluster/cloud executors. |
 | `--max_memory` | `128.GB` | Memory cap applied to all processes. |
 | `--max_cpus` | `32` | CPU cap applied to all processes. |
 | `--max_time` | `72.h` | Runtime cap applied to all processes. |
