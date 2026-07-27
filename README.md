@@ -70,9 +70,10 @@ nextflow run nf-austin/scArches \
 | `--dataset_obs` | _(empty)_ | obs column identifying batches/datasets. Blank treats all cells as one batch. |
 | `--celltype_obs` | `cell_type` | obs column with reference cell type labels. |
 | `--n_hvgs` | `3000` | Number of highly variable genes used for training. |
-| `--train_max_epochs` | `400` | Max training epochs for `TRAIN_MODEL`. |
+| `--train_max_epochs` | `200` | Max training epochs for `TRAIN_MODEL`. |
 | `--finetune_epochs` | `20` | SCANVI fine-tuning epochs after the SCVI pretraining stage. |
-| `--integrate_max_epochs` | `200` | Max epochs for `APPLY_MODEL`'s query mapping. |
+| `--integrate_max_epochs` | `100` | Max epochs for `APPLY_MODEL`'s query mapping. |
+| `--batch_size` | `1024` | Minibatch size passed to `model.train()` in both `TRAIN_MODEL` and `APPLY_MODEL`. |
 | `--use_gpu` | `false` | Train/apply on GPU instead of CPU. Adds `--gpus all`/`--nv` to the `docker`/`singularity` profiles and requests an `accelerator` on cluster/cloud executors. |
 | `--max_memory` | `128.GB` | Memory cap applied to all processes. |
 | `--max_cpus` | `32` | CPU cap applied to all processes. |

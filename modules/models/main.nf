@@ -43,6 +43,7 @@ process APPLY_MODEL {
     path model_dir
     val model_type
     val celltype_obs
+    val dataset_obs
     val max_epochs
     val batch_size
     val use_gpu
@@ -59,6 +60,8 @@ process APPLY_MODEL {
         --in_model ${model_dir} \\
         --model_type ${model_type} \\
         --celltype_obs "${celltype_obs}" \\
+        --dataset_obs "${dataset_obs}" \\
+        --sample_id "${sample_id}" \\
         --max_epochs ${max_epochs} \\
         --batch_size ${batch_size} \\
         ${gpu_flag}

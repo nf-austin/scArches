@@ -13,6 +13,8 @@ def integrate(
     in_model: str,
     model_type: str,
     celltype_obs: str,
+    dataset_obs: str,
+    sample_id: str,
     max_epochs: int,
     batch_size: int = 128,
     use_gpu: bool = False
@@ -20,6 +22,13 @@ def integrate(
     accelerator = "gpu" if use_gpu else "cpu"
 
     orig_adata = adata.copy()
+
+    # The reference model expects the same batch/dataset obs column train.py registered it with
+    # (params.dataset_obs; "batch" when that was left blank, see train.py). A per-sample query file
+    # generally won't already carry it, so treat the whole file as one new, unseen batch.
+    batch_key = dataset_obs if dataset_obs else "batch"
+    if batch_key not in adata.obs:
+        adata.obs[batch_key] = sample_id
 
     # Ensure raw counts are stored in .layers["counts"] as required by scvi-tools
     if "counts" not in adata.layers:
@@ -70,6 +79,8 @@ def main():
     parser.add_argument("--in_model", required=True)
     parser.add_argument("--model_type", default="scvi", choices=["scvi", "scanvi", "scpoli"])
     parser.add_argument("--celltype_obs", required=True)
+    parser.add_argument("--dataset_obs", default="", help="obs column identifying batches/datasets; must match the value train.py was run with.")
+    parser.add_argument("--sample_id", required=True, help="Label used for this file's batch/dataset if --dataset_obs isn't already present in the input.")
     parser.add_argument("--max_epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=128, help="Minibatch size for model.train().")
     parser.add_argument("--use_gpu", action="store_true", help="Integrate on GPU instead of CPU.")
@@ -81,6 +92,8 @@ def main():
         args.in_model,
         args.model_type,
         args.celltype_obs,
+        args.dataset_obs,
+        args.sample_id,
         args.max_epochs,
         args.batch_size,
         args.use_gpu

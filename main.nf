@@ -15,7 +15,7 @@ workflow {
     def latent_key = [scvi: 'X_scVI', scanvi: 'X_scANVI', scpoli: 'X_scPoli'][model_type]
     def model_file = "${params.outdir}/${params.model_name}.tar.gz"
 
-    channel.fromPath(params.h5ad_dir)
+    channel.fromPath(params.h5ad_dir, checkIfExists: true)
         | map { f -> tuple(f.baseName.replaceFirst(/_annotated$/, ''), f) }
         | set { ch_samples }
 
@@ -52,6 +52,7 @@ workflow {
         ch_model_dir,
         model_type,
         params.celltype_obs,
+        params.dataset_obs,
         params.integrate_max_epochs,
         params.batch_size,
         params.use_gpu
