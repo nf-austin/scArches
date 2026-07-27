@@ -10,6 +10,7 @@ process TRAIN_MODEL {
         val n_hvgs
         val max_epochs
         val finetune_epochs
+        val batch_size
         val use_gpu
 
     output:
@@ -27,6 +28,7 @@ process TRAIN_MODEL {
         --n_hvgs ${n_hvgs} \\
         --max_epochs ${max_epochs} \\
         --finetune_epochs ${finetune_epochs} \\
+        --batch_size ${batch_size} \\
         ${gpu_flag}
     """
 }
@@ -42,6 +44,7 @@ process APPLY_MODEL {
     val model_type
     val celltype_obs
     val max_epochs
+    val batch_size
     val use_gpu
 
     output:
@@ -57,6 +60,7 @@ process APPLY_MODEL {
         --model_type ${model_type} \\
         --celltype_obs "${celltype_obs}" \\
         --max_epochs ${max_epochs} \\
+        --batch_size ${batch_size} \\
         ${gpu_flag}
     """
 }

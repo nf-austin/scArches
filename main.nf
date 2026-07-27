@@ -33,6 +33,7 @@ workflow {
             params.n_hvgs,
             params.train_max_epochs,
             params.finetune_epochs,
+            params.batch_size,
             params.use_gpu
         )
         COMPRESS(TRAIN_MODEL.out.model_dir)
@@ -52,6 +53,7 @@ workflow {
         model_type,
         params.celltype_obs,
         params.integrate_max_epochs,
+        params.batch_size,
         params.use_gpu
     )
 
