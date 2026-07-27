@@ -1,6 +1,7 @@
 import argparse
 
 import anndata as ad
+import pandas as pd
 import scanpy as sc
 import scarches as sca
 
@@ -79,6 +80,14 @@ def train(
         print("Unlabelled Indices: ", len(model._unlabeled_indices))
         model.train(max_epochs=finetune_epochs, batch_size=batch_size, accelerator=accelerator)
     elif model_type == "scpoli":
+        # scPoli's constructor defaults labeled_indices to range(len(adata)) and looks up
+        # cell types via adata.obs[celltype_obs][range(len(adata))]. AnnData always keeps
+        # obs_names as strings, and pandas >=2.0 dropped the positional fallback for integer
+        # keys against a non-integer index, so that lookup now raises KeyError for any real
+        # dataset. Swapping in a real integer index (bypassing AnnData's obs_names setter, so
+        # it isn't coerced back to strings) makes the lookup a genuine label match. This is
+        # never persisted: model.save() below only writes adata when save_anndata=True.
+        adata.obs.index = pd.RangeIndex(adata.n_obs)
         model = sca.models.scPoli(
             adata,
             condition_keys=dataset_obs,
