@@ -3,11 +3,10 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - python=3.12
+  - python=3.11
   - scanpy
   - anndata=0.9.2
   - pip
   - setuptools<82
   - pip:
-    - -c setuptools-constraint.txt
     - git+https://github.com/theislab/scarches.git@master
