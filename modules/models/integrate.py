@@ -55,7 +55,7 @@ def integrate(
         orig_adata.obs["prediction_probability"] = predictions.max(axis=1)
     elif model_type == "scpoli":
         # labeled_indices=[] signifies the entire query is unannotated
-        query_model = sca.model.scPoli.load_query_data(adata, in_model, labeled_indices=[])
+        query_model = sca.models.scPoli.load_query_data(adata, in_model, labeled_indices=[])
         query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=batch_size, use_gpu=use_gpu)
         results = query_model.classify(
             adata,
