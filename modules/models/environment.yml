@@ -9,4 +9,5 @@ dependencies:
   - pip
   - setuptools<82
   - pip:
+    - pandas<2.2
     - git+https://github.com/theislab/scarches.git@master
