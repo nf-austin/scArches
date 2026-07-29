@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--model_type", default="scvi", choices=["scvi", "scanvi", "scpoli"])
     parser.add_argument("--dataset_obs", default="")
     parser.add_argument("--celltype_obs", required=True)
-    parser.add_argument("--n_hvgs", type=int, default=3000)
+    parser.add_argument("--n_hvgs", type=int, default=6000)
     parser.add_argument("--max_epochs", type=int, default=400)
     parser.add_argument("--finetune_epochs", type=int, default=20)
     parser.add_argument("--batch_size", type=int, default=128, help="Minibatch size for model.train().")

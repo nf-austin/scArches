@@ -54,7 +54,11 @@ def integrate(
         orig_adata.obs["predicted_cell_type"] = predictions.idxmax(axis=1)
         orig_adata.obs["prediction_probability"] = predictions.max(axis=1)
     elif model_type == "scpoli":
-        # labeled_indices=[] signifies the entire query is unannotated
+        # scPoli.load_query_data looks up adata.obs[celltype_obs][labeled_indices] before
+        # applying labeled_indices, so the column must exist even though labeled_indices=[]
+        # means the whole query is unannotated and no lookup values are actually used.
+        if celltype_obs not in adata.obs:
+            adata.obs[celltype_obs] = "Unknown"
         query_model = sca.models.scPoli.load_query_data(adata, in_model, labeled_indices=[])
         query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=batch_size, use_gpu=use_gpu)
         results = query_model.classify(
