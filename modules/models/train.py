@@ -1,9 +1,36 @@
 import argparse
+import math
 
 import anndata as ad
 import pandas as pd
 import scanpy as sc
 import scarches as sca
+import numpy as np
+import torch
+
+
+def _patch_scpoli_get_latent_train():
+    # See modules/models/integrate.py's _patch_scpoli_get_latent_train for the full
+    # explanation: scPoliTrainer.get_latent_train misuses batch_size as a section count
+    # instead of a chunk size, which crashes when there are fewer cells than batch_size.
+    from scarches.trainers.scpoli.trainer import scPoliTrainer
+
+    def get_latent_train(self):
+        latents = []
+        indices = np.arange(len(self.train_data))
+        n_chunks = max(1, math.ceil(len(indices) / self.batch_size))
+        subsampled_indices = np.array_split(indices, n_chunks)
+        for batch in subsampled_indices:
+            batch_data = self.train_data[batch]
+            latent = self.model.get_latent(
+                batch_data["x"].to(self.device),
+                batch_data["batch"].to(self.device),
+            )
+            latents += [latent.cpu().detach()]
+        latent = torch.cat(latents)
+        return latent.to(self.device)
+
+    scPoliTrainer.get_latent_train = get_latent_train
 
 
 def train(
@@ -95,15 +122,12 @@ def train(
             embedding_dims=5,
             recon_loss="nb"
         )
-        # See integrate.py's scpoli branch: scPoli's trainer splits training data into
-        # `batch_size` chunks rather than chunks *of* that size, so batch_size must not exceed
-        # the number of cells or initialize_prototypes() crashes on empty chunks.
-        scpoli_batch_size = min(batch_size, adata.n_obs)
+        _patch_scpoli_get_latent_train()
         model.train(
             n_epochs=max_epochs,  # Should be 100 for scPoli
             pretraining_epochs=max_epochs - max_epochs // 5,
             eta=5,
-            batch_size=scpoli_batch_size,
+            batch_size=batch_size,
             use_gpu=use_gpu,
             early_stopping_kwargs={
                 "early_stopping_metric": "val_prototype_loss",

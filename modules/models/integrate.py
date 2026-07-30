@@ -1,10 +1,40 @@
 import argparse
 import argparse
+import math
 
 import anndata as ad
 import scanpy as sc
 import scarches as sca
 import numpy as np
+import torch
+
+
+def _patch_scpoli_get_latent_train():
+    # scPoliTrainer.get_latent_train splits the training data via
+    # np.array_split(indices, self.batch_size), treating batch_size as a *section count*
+    # rather than a chunk size (every other DataLoader in that trainer uses batch_size
+    # correctly as the chunk size). When there are fewer cells than batch_size, most
+    # sections come back empty, and indexing the dataset with an empty index array
+    # collapses a tensor from 2-D to 1-D, crashing torch.cat in the encoder. Patch in a
+    # version that derives the section count from the chunk size instead.
+    from scarches.trainers.scpoli.trainer import scPoliTrainer
+
+    def get_latent_train(self):
+        latents = []
+        indices = np.arange(len(self.train_data))
+        n_chunks = max(1, math.ceil(len(indices) / self.batch_size))
+        subsampled_indices = np.array_split(indices, n_chunks)
+        for batch in subsampled_indices:
+            batch_data = self.train_data[batch]
+            latent = self.model.get_latent(
+                batch_data["x"].to(self.device),
+                batch_data["batch"].to(self.device),
+            )
+            latents += [latent.cpu().detach()]
+        latent = torch.cat(latents)
+        return latent.to(self.device)
+
+    scPoliTrainer.get_latent_train = get_latent_train
 
 
 def integrate(
@@ -59,13 +89,9 @@ def integrate(
         # means the whole query is unannotated and no lookup values are actually used.
         if celltype_obs not in adata.obs:
             adata.obs[celltype_obs] = "Unknown"
+        _patch_scpoli_get_latent_train()
         query_model = sca.models.scPoli.load_query_data(adata, in_model, labeled_indices=[])
-        # scPoli's trainer splits the training data into `batch_size` chunks via
-        # np.array_split(indices, self.batch_size) instead of chunks *of* that size, so a
-        # batch_size larger than the number of query cells produces empty chunks and crashes
-        # with a tensor-dimension mismatch in initialize_prototypes(). Cap it to n_obs.
-        scpoli_batch_size = min(batch_size, adata.n_obs)
-        query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=scpoli_batch_size, use_gpu=use_gpu)
+        query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=batch_size, use_gpu=use_gpu)
         results = query_model.classify(
             adata,
             scale_uncertainties=True
