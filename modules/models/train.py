@@ -95,11 +95,15 @@ def train(
             embedding_dims=5,
             recon_loss="nb"
         )
+        # See integrate.py's scpoli branch: scPoli's trainer splits training data into
+        # `batch_size` chunks rather than chunks *of* that size, so batch_size must not exceed
+        # the number of cells or initialize_prototypes() crashes on empty chunks.
+        scpoli_batch_size = min(batch_size, adata.n_obs)
         model.train(
             n_epochs=max_epochs,  # Should be 100 for scPoli
             pretraining_epochs=max_epochs - max_epochs // 5,
             eta=5,
-            batch_size=batch_size,
+            batch_size=scpoli_batch_size,
             use_gpu=use_gpu,
             early_stopping_kwargs={
                 "early_stopping_metric": "val_prototype_loss",

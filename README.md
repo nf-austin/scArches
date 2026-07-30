@@ -69,7 +69,7 @@ nextflow run nf-austin/scArches \
 | `--train_h5ad` | _(none)_ | Reference dataset to train on. Required when `--train_model true`. |
 | `--dataset_obs` | _(empty)_ | obs column identifying batches/datasets. Blank treats all cells as one batch. |
 | `--celltype_obs` | `cell_type` | obs column with reference cell type labels. |
-| `--n_hvgs` | `3000` | Number of highly variable genes used for training. |
+| `--n_hvgs` | `6000` | Number of highly variable genes used for training. |
 | `--train_max_epochs` | `200` | Max training epochs for `TRAIN_MODEL`. |
 | `--finetune_epochs` | `20` | SCANVI fine-tuning epochs after the SCVI pretraining stage. |
 | `--integrate_max_epochs` | `100` | Max epochs for `APPLY_MODEL`'s query mapping. |

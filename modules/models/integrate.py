@@ -60,7 +60,12 @@ def integrate(
         if celltype_obs not in adata.obs:
             adata.obs[celltype_obs] = "Unknown"
         query_model = sca.models.scPoli.load_query_data(adata, in_model, labeled_indices=[])
-        query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=batch_size, use_gpu=use_gpu)
+        # scPoli's trainer splits the training data into `batch_size` chunks via
+        # np.array_split(indices, self.batch_size) instead of chunks *of* that size, so a
+        # batch_size larger than the number of query cells produces empty chunks and crashes
+        # with a tensor-dimension mismatch in initialize_prototypes(). Cap it to n_obs.
+        scpoli_batch_size = min(batch_size, adata.n_obs)
+        query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=scpoli_batch_size, use_gpu=use_gpu)
         results = query_model.classify(
             adata,
             scale_uncertainties=True
