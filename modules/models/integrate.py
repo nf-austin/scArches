@@ -92,15 +92,21 @@ def integrate(
         _patch_scpoli_get_latent_train()
         query_model = sca.models.scPoli.load_query_data(adata, in_model, labeled_indices=[])
         query_model.train(max_epochs=max_epochs, pretraining_epochs=max_epochs - max_epochs//5, eta=10, batch_size=batch_size, use_gpu=use_gpu)
+        # load_query_data() gene-aligns (reorders/pads to the reference var_names) the adata it's
+        # given and keeps that aligned copy as query_model.adata, but never mutates our adata in
+        # place. classify()/get_latent() do no alignment of their own, so passing our still-raw,
+        # full-gene-panel adata here shapes-mismatches against the model's HVG-subset input layer.
+        # query_model.adata has the same cells in the same order (only columns are touched), so
+        # it's safe to index positionally back onto orig_adata below.
         results = query_model.classify(
-            adata,
+            query_model.adata,
             scale_uncertainties=True
         )
         preds = results[celltype_obs]["preds"]
         uncert = results[celltype_obs]["uncert"]
         orig_adata.obs["predicted_cell_type"] = preds
         orig_adata.obs["prediction_uncertainty"] = uncert
-        orig_adata.obsm["X_scPoli"] = query_model.get_latent(adata, mean=True)
+        orig_adata.obsm["X_scPoli"] = query_model.get_latent(query_model.adata, mean=True)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
