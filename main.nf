@@ -34,6 +34,9 @@ workflow {
             params.train_max_epochs,
             params.finetune_epochs,
             params.batch_size,
+            params.n_layers,
+            params.dropout_rate,
+            params.learning_rate,
             params.use_gpu
         )
         COMPRESS(TRAIN_MODEL.out.model_dir)

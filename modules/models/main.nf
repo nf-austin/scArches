@@ -11,6 +11,9 @@ process TRAIN_MODEL {
         val max_epochs
         val finetune_epochs
         val batch_size
+        val n_layers
+        val dropout_rate
+        val learning_rate
         val use_gpu
 
     output:
@@ -29,6 +32,9 @@ process TRAIN_MODEL {
         --max_epochs ${max_epochs} \\
         --finetune_epochs ${finetune_epochs} \\
         --batch_size ${batch_size} \\
+        --n_layers ${n_layers} \\
+        --dropout_rate ${dropout_rate} \\
+        --learning_rate ${learning_rate} \\
         ${gpu_flag}
     """
 }

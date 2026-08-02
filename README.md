@@ -73,6 +73,9 @@ nextflow run nf-austin/scArches \
 | `--train_max_epochs` | `200` | Max training epochs for `TRAIN_MODEL`. |
 | `--finetune_epochs` | `20` | SCANVI fine-tuning epochs after the SCVI pretraining stage. |
 | `--integrate_max_epochs` | `100` | Max epochs for `APPLY_MODEL`'s query mapping. |
+| `--n_layers` | `3` | Number of hidden layers in the encoder/decoder (SCVI/SCANVI: `n_layers`; scPoli: repeats its own default layer width `n_layers` times via `hidden_layer_sizes`). |
+| `--dropout_rate` | `0.2` | Dropout rate applied in the encoder/decoder (SCVI/SCANVI: `dropout_rate`; scPoli: `dr_rate`, whose own default is `0.05`). |
+| `--learning_rate` | `0.001` | Optimizer learning rate for all `TRAIN_MODEL` stages (SCVI, SCANVI's pretraining and fine-tuning, and scPoli). |
 | `--batch_size` | `1024` | Minibatch size passed to `model.train()` in both `TRAIN_MODEL` and `APPLY_MODEL`. |
 | `--use_gpu` | `false` | Train/apply on GPU instead of CPU. Adds `--gpus all`/`--nv` to the `docker`/`singularity` profiles and requests an `accelerator` on cluster/cloud executors. |
 | `--max_memory` | `128.GB` | Memory cap applied to all processes. |
