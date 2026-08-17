@@ -1,5 +1,7 @@
 import argparse
 import math
+import os
+import pickle
 
 import anndata as ad
 import pandas as pd
@@ -46,6 +48,7 @@ def train(
     n_layers: int = 3,
     dropout_rate: float = 0.2,
     learning_rate: float = 1e-3,
+    knn_neighbors: int = 50,
     use_gpu: bool = False
 ):
     accelerator = "gpu" if use_gpu else "cpu"
@@ -60,14 +63,15 @@ def train(
         dataset_obs = "batch"
 
     # Call HVGs
-    sc.pp.highly_variable_genes(
-        adata,
-        n_top_genes=n_hvgs,
-        batch_key=dataset_obs,
-        flavor="seurat_v3",
-        layer="counts",
-        subset=True
-    )
+    if adata.shape[1] > n_hvgs:
+        sc.pp.highly_variable_genes(
+            adata,
+            n_top_genes=n_hvgs,
+            batch_key=dataset_obs,
+            flavor="seurat_v3",
+            layer="counts",
+            subset=True
+        )
 
     if model_type == "scvi":
         sca.models.SCVI.setup_anndata(
@@ -157,6 +161,25 @@ def train(
 
     model.save(out_model, overwrite=True)
 
+    # Fit a weighted-KNN classifier on the reference latent space and persist it inside the
+    # model directory (so COMPRESS/DECOMPRESS carry it with the model). integrate.py then
+    # transfers labels without ever loading the (potentially huge) reference dataset.
+    # weighted_knn_transfer indexes ref_adata_obs positionally, so the saved labels must stay
+    # in the same row order as the latents the trainer is fit on — both come from `adata`.
+    latent_key = {"scvi": "X_scVI", "scanvi": "X_scANVI", "scpoli": "X_scPoli"}[model_type]
+    if model_type == "scpoli":
+        adata.obsm[latent_key] = model.get_latent(adata, mean=True)
+    else:
+        adata.obsm[latent_key] = model.get_latent_representation()
+    knn_model = sca.utils.knn.weighted_knn_trainer(
+        train_adata=adata,
+        train_adata_emb=latent_key,
+        n_neighbors=knn_neighbors,
+    )
+    with open(os.path.join(out_model, "knn_classifier.pkl"), "wb") as f:
+        pickle.dump(knn_model, f)
+    adata.obs[[celltype_obs]].to_csv(os.path.join(out_model, "knn_ref_labels.csv"), index=False)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Train a model on a dataset.")
@@ -172,6 +195,7 @@ def main():
     parser.add_argument("--n_layers", type=int, default=3, help="Number of hidden layers in the encoder/decoder (SCVI/SCANVI: n_layers; scPoli: hidden_layer_sizes length).")
     parser.add_argument("--dropout_rate", type=float, default=0.2, help="Dropout rate for the encoder/decoder (SCVI/SCANVI: dropout_rate; scPoli: dr_rate).")
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Optimizer learning rate (SCVI/SCANVI: plan_kwargs['lr']; scPoli: lr). Applied to all training stages, including SCANVI fine-tuning.")
+    parser.add_argument("--knn_neighbors", type=int, default=50, help="Number of neighbors for the weighted-KNN label-transfer classifier fit on the reference latent space.")
     parser.add_argument("--use_gpu", action="store_true", help="Train on GPU instead of CPU.")
     args = parser.parse_args()
 
@@ -188,6 +212,7 @@ def main():
         args.n_layers,
         args.dropout_rate,
         args.learning_rate,
+        args.knn_neighbors,
         args.use_gpu
     )
 

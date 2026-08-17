@@ -14,6 +14,7 @@ process TRAIN_MODEL {
         val n_layers
         val dropout_rate
         val learning_rate
+        val knn_neighbors
         val use_gpu
 
     output:
@@ -35,6 +36,7 @@ process TRAIN_MODEL {
         --n_layers ${n_layers} \\
         --dropout_rate ${dropout_rate} \\
         --learning_rate ${learning_rate} \\
+        --knn_neighbors ${knn_neighbors} \\
         ${gpu_flag}
     """
 }
@@ -53,12 +55,14 @@ process APPLY_MODEL {
     val max_epochs
     val batch_size
     val use_gpu
+    val use_knn
 
     output:
     tuple val(sample_id), path("${sample_id}_integrated.h5ad"), emit: h5ad
 
     script:
     def gpu_flag = use_gpu ? '--use_gpu' : ''
+    def knn_flag = use_knn ? '--use_knn' : ''
     """
     python3 ${moduleDir}/integrate.py \\
         --input_h5ad ${h5ad} \\
@@ -70,6 +74,6 @@ process APPLY_MODEL {
         --sample_id "${sample_id}" \\
         --max_epochs ${max_epochs} \\
         --batch_size ${batch_size} \\
-        ${gpu_flag}
+        ${gpu_flag} ${knn_flag}
     """
 }

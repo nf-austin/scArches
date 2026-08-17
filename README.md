@@ -59,28 +59,30 @@ nextflow run nf-austin/scArches \
 
 ## Parameters
 
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `--h5ad_dir` | `data/*.h5ad` | Glob pattern for query h5ad files to integrate. |
-| `--outdir` | `results` | Output directory. |
-| `--train_model` | `true` | Train a new reference model; set to `false` to reuse an existing one. |
-| `--model_type` | `SCANVI` | Reference model backend: `SCVI`, `SCANVI`, or `SCPOLI`. |
-| `--model_name` | `model` | Name of the model artifact (`<model_name>.tar.gz` under `--outdir`). |
-| `--train_h5ad` | _(none)_ | Reference dataset to train on. Required when `--train_model true`. |
-| `--dataset_obs` | _(empty)_ | obs column identifying batches/datasets. Blank treats all cells as one batch. |
-| `--celltype_obs` | `cell_type` | obs column with reference cell type labels. |
-| `--n_hvgs` | `6000` | Number of highly variable genes used for training. |
-| `--train_max_epochs` | `200` | Max training epochs for `TRAIN_MODEL`. |
-| `--finetune_epochs` | `20` | SCANVI fine-tuning epochs after the SCVI pretraining stage. |
-| `--integrate_max_epochs` | `100` | Max epochs for `APPLY_MODEL`'s query mapping. |
-| `--n_layers` | `3` | Number of hidden layers in the encoder/decoder (SCVI/SCANVI: `n_layers`; scPoli: repeats its own default layer width `n_layers` times via `hidden_layer_sizes`). |
-| `--dropout_rate` | `0.2` | Dropout rate applied in the encoder/decoder (SCVI/SCANVI: `dropout_rate`; scPoli: `dr_rate`, whose own default is `0.05`). |
-| `--learning_rate` | `0.001` | Optimizer learning rate for all `TRAIN_MODEL` stages (SCVI, SCANVI's pretraining and fine-tuning, and scPoli). |
-| `--batch_size` | `1024` | Minibatch size passed to `model.train()` in both `TRAIN_MODEL` and `APPLY_MODEL`. |
-| `--use_gpu` | `false` | Train/apply on GPU instead of CPU. Adds `--gpus all`/`--nv` to the `docker`/`singularity` profiles and requests an `accelerator` on cluster/cloud executors. |
-| `--max_memory` | `128.GB` | Memory cap applied to all processes. |
-| `--max_cpus` | `32` | CPU cap applied to all processes. |
-| `--max_time` | `72.h` | Runtime cap applied to all processes. |
+| Parameter                | Default       | Description                                                                                                                                                      |
+|--------------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--h5ad_dir`             | `data/*.h5ad` | Glob pattern for query h5ad files to integrate.                                                                                                                  |
+| `--outdir`               | `results`     | Output directory.                                                                                                                                                |
+| `--train_model`          | `true`        | Train a new reference model; set to `false` to reuse an existing one.                                                                                            |
+| `--model_type`           | `SCANVI`      | Reference model backend: `SCVI`, `SCANVI`, or `SCPOLI`.                                                                                                          |
+| `--model_name`           | `model`       | Name of the model artifact (`<model_name>.tar.gz` under `--outdir`).                                                                                             |
+| `--train_h5ad`           | _(none)_      | Reference dataset to train on. Required when `--train_model true`.                                                                                               |
+| `--dataset_obs`          | _(empty)_     | obs column identifying batches/datasets. Blank treats all cells as one batch.                                                                                    |
+| `--celltype_obs`         | `cell_type`   | obs column with reference cell type labels.                                                                                                                      |
+| `--n_hvgs`               | `6000`        | Number of highly variable genes used for training.                                                                                                               |
+| `--train_max_epochs`     | `200`         | Max training epochs for `TRAIN_MODEL`.                                                                                                                           |
+| `--finetune_epochs`      | `20`          | SCANVI fine-tuning epochs after the SCVI pretraining stage.                                                                                                      |
+| `--integrate_max_epochs` | `100`         | Max epochs for `APPLY_MODEL`'s query mapping.                                                                                                                    |
+| `--n_layers`             | `3`           | Number of hidden layers in the encoder/decoder (SCVI/SCANVI: `n_layers`; scPoli: repeats its own default layer width `n_layers` times via `hidden_layer_sizes`). |
+| `--dropout_rate`         | `0.2`         | Dropout rate applied in the encoder/decoder (SCVI/SCANVI: `dropout_rate`; scPoli: `dr_rate`, whose own default is `0.05`).                                       |
+| `--learning_rate`        | `0.001`       | Optimizer learning rate for all `TRAIN_MODEL` stages (SCVI, SCANVI's pretraining and fine-tuning, and scPoli).                                                   |
+| `--batch_size`           | `1024`        | Minibatch size passed to `model.train()` in both `TRAIN_MODEL` and `APPLY_MODEL`.                                                                                |
+| `--use_knn`              | `false`       | Transfer labels with the weighted-KNN classifier (fit on the reference latents at training time) instead of the model's native classifier. SCVI has no native classifier and always uses the KNN, regardless of this flag. |
+| `--knn_neighbors`        | `50`          | Number of neighbors for the weighted-KNN classifier `TRAIN_MODEL` fits on the reference latent space.                                                            |
+| `--use_gpu`              | `false`       | Train/apply on GPU instead of CPU. Adds `--gpus all`/`--nv` to the `docker`/`singularity` profiles and requests an `accelerator` on cluster/cloud executors.     |
+| `--max_memory`           | `128.GB`      | Memory cap applied to all processes.                                                                                                                             |
+| `--max_cpus`             | `32`          | CPU cap applied to all processes.                                                                                                                                |
+| `--max_time`             | `72.h`        | Runtime cap applied to all processes.                                                                                                                            |
 
 ## Output structure
 
@@ -88,6 +90,6 @@ nextflow run nf-austin/scArches \
 results/
 ├── <model_name>.tar.gz          # Trained reference model artifact
 ├── combined_annotated.h5ad      # All query samples integrated and merged; obsm/obs columns added:
-│                                 #   X_scVI/X_scANVI/X_scPoli, predicted_cell_type (SCANVI/scPoli)
+│                                 #   X_scVI/X_scANVI/X_scPoli, predicted_cell_type
 └── qc_report.pdf                # UMAP QC report over the merged, integrated dataset
 ```

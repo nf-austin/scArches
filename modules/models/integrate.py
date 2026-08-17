@@ -1,8 +1,10 @@
 import argparse
-import argparse
 import math
+import os
+import pickle
 
 import anndata as ad
+import pandas as pd
 import scanpy as sc
 import scarches as sca
 import numpy as np
@@ -47,9 +49,14 @@ def integrate(
     sample_id: str,
     max_epochs: int,
     batch_size: int = 128,
-    use_gpu: bool = False
+    use_gpu: bool = False,
+    use_knn: bool = False
 ):
     accelerator = "gpu" if use_gpu else "cpu"
+
+    # SCVI has no native classifier, so it always transfers labels via the weighted-KNN
+    # classifier that train.py fit on the reference latent space.
+    use_knn = use_knn or model_type == "scvi"
 
     orig_adata = adata.copy()
 
@@ -70,7 +77,6 @@ def integrate(
         query_model.train(max_epochs=max_epochs, plan_kwargs={"weight_decay": 0.0}, batch_size=batch_size, accelerator=accelerator)  # Heavy regularization
         latent_key = "X_scVI"
         orig_adata.obsm[latent_key] = query_model.get_latent_representation()
-        # TODO: scarches weighted knn model to transfer from reference to query
     elif model_type == "scanvi":
         sca.models.SCANVI.prepare_query_anndata(adata, in_model)
         query_model = sca.models.SCANVI.load_query_data(adata, in_model, freeze_dropout=True)
@@ -79,10 +85,11 @@ def integrate(
         query_model.train(max_epochs=max_epochs, plan_kwargs={"weight_decay": 0.0}, check_val_every_n_epoch=10, batch_size=batch_size, accelerator=accelerator)  # Heavy regularization
         latent_key = "X_scANVI"
         orig_adata.obsm[latent_key] = query_model.get_latent_representation()
-        # soft=True forces the network to return a DataFrame of softmax class probabilities
-        predictions = query_model.predict(soft=True)
-        orig_adata.obs["predicted_cell_type"] = predictions.idxmax(axis=1)
-        orig_adata.obs["prediction_probability"] = predictions.max(axis=1)
+        if not use_knn:
+            # soft=True forces the network to return a DataFrame of softmax class probabilities
+            predictions = query_model.predict(soft=True)
+            orig_adata.obs["predicted_cell_type"] = predictions.idxmax(axis=1)
+            orig_adata.obs["prediction_probability"] = predictions.max(axis=1)
     elif model_type == "scpoli":
         # scPoli.load_query_data looks up adata.obs[celltype_obs][labeled_indices] before
         # applying labeled_indices, so the column must exist even though labeled_indices=[]
@@ -98,17 +105,45 @@ def integrate(
         # full-gene-panel adata here shapes-mismatches against the model's HVG-subset input layer.
         # query_model.adata has the same cells in the same order (only columns are touched), so
         # it's safe to index positionally back onto orig_adata below.
-        results = query_model.classify(
-            query_model.adata,
-            scale_uncertainties=True
-        )
-        preds = results[celltype_obs]["preds"]
-        uncert = results[celltype_obs]["uncert"]
-        orig_adata.obs["predicted_cell_type"] = preds
-        orig_adata.obs["prediction_uncertainty"] = uncert
-        orig_adata.obsm["X_scPoli"] = query_model.get_latent(query_model.adata, mean=True)
+        if not use_knn:
+            results = query_model.classify(
+                query_model.adata,
+                scale_uncertainties=True
+            )
+            preds = results[celltype_obs]["preds"]
+            uncert = results[celltype_obs]["uncert"]
+            orig_adata.obs["predicted_cell_type"] = preds
+            orig_adata.obs["prediction_uncertainty"] = uncert
+        latent_key = "X_scPoli"
+        orig_adata.obsm[latent_key] = query_model.get_latent(query_model.adata, mean=True)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
+
+    if use_knn:
+        # Transfer labels with the weighted-KNN classifier train.py fit on the reference
+        # latent space (persisted inside the model directory), so the reference dataset
+        # itself is never needed here. weighted_knn_transfer indexes ref_adata_obs
+        # positionally, and knn_ref_labels.csv preserves the trainer's row order.
+        knn_pkl = os.path.join(in_model, "knn_classifier.pkl")
+        ref_labels_csv = os.path.join(in_model, "knn_ref_labels.csv")
+        if not (os.path.exists(knn_pkl) and os.path.exists(ref_labels_csv)):
+            raise FileNotFoundError(
+                f"KNN classifier artifacts ({knn_pkl}, {ref_labels_csv}) not found in the model "
+                "directory. The reference model predates KNN support - retrain it with the "
+                "current train.py to use the weighted-KNN classifier."
+            )
+        with open(knn_pkl, "rb") as f:
+            knn_model = pickle.load(f)
+        ref_labels = pd.read_csv(ref_labels_csv)
+        labels, uncert = sca.utils.knn.weighted_knn_transfer(
+            query_adata=orig_adata,
+            query_adata_emb=latent_key,
+            ref_adata_obs=ref_labels,
+            label_keys=celltype_obs,
+            knn_model=knn_model,
+        )
+        orig_adata.obs["predicted_cell_type"] = labels[celltype_obs].values
+        orig_adata.obs["prediction_uncertainty"] = uncert[celltype_obs].values.astype(float)
 
     orig_adata.write_h5ad(output_h5ad)
 
@@ -125,6 +160,7 @@ def main():
     parser.add_argument("--max_epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=128, help="Minibatch size for model.train().")
     parser.add_argument("--use_gpu", action="store_true", help="Integrate on GPU instead of CPU.")
+    parser.add_argument("--use_knn", action="store_true", help="Use a weighted knn classifier instead of directly querying the trained model. Always on for scvi, which has no native classifier.")
     args = parser.parse_args()
 
     integrate(
@@ -137,7 +173,8 @@ def main():
         args.sample_id,
         args.max_epochs,
         args.batch_size,
-        args.use_gpu
+        args.use_gpu,
+        args.use_knn
     )
 
 

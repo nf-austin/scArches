@@ -37,6 +37,7 @@ workflow {
             params.n_layers,
             params.dropout_rate,
             params.learning_rate,
+            params.knn_neighbors,
             params.use_gpu
         )
         COMPRESS(TRAIN_MODEL.out.model_dir)
@@ -58,7 +59,8 @@ workflow {
         params.dataset_obs,
         params.integrate_max_epochs,
         params.batch_size,
-        params.use_gpu
+        params.use_gpu,
+        params.use_knn
     )
 
     APPLY_MODEL.out.h5ad
