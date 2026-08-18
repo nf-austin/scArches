@@ -35,6 +35,21 @@ def _patch_scpoli_get_latent_train():
     scPoliTrainer.get_latent_train = get_latent_train
 
 
+def _balanced_label_indices(labels: pd.Series, max_per_label: int, seed: int = 0) -> np.ndarray:
+    """Positional indices that cap each label at `max_per_label` cells (<=0 keeps everything)."""
+    if max_per_label <= 0:
+        return np.arange(len(labels))
+    values = labels.to_numpy()
+    rng = np.random.default_rng(seed)
+    kept = []
+    for label in pd.unique(values):
+        positions = np.flatnonzero(values == label)
+        if len(positions) > max_per_label:
+            positions = rng.choice(positions, size=max_per_label, replace=False)
+        kept.append(positions)
+    return np.sort(np.concatenate(kept))
+
+
 def train(
     adata: ad.AnnData,
     out_model: str,
@@ -49,6 +64,8 @@ def train(
     dropout_rate: float = 0.2,
     learning_rate: float = 1e-3,
     knn_neighbors: int = 50,
+    n_samples_per_label: int = 0,
+    max_cells_per_label: int = 0,
     use_gpu: bool = False
 ):
     accelerator = "gpu" if use_gpu else "cpu"
@@ -113,7 +130,18 @@ def train(
         )
         print("Labelled Indices: ", len(model._labeled_indices))
         print("Unlabelled Indices: ", len(model._unlabeled_indices))
-        model.train(max_epochs=finetune_epochs, batch_size=batch_size, accelerator=accelerator, plan_kwargs={"lr": learning_rate})
+        # Without n_samples_per_label the classification head sees the reference's raw label
+        # distribution every epoch, so on a reference spanning three orders of magnitude between
+        # its largest and smallest label it spends its capacity separating the abundant classes.
+        # Passing it resamples a fixed number of cells per label instead. None = scvi-tools'
+        # unbalanced default.
+        model.train(
+            max_epochs=finetune_epochs,
+            batch_size=batch_size,
+            accelerator=accelerator,
+            plan_kwargs={"lr": learning_rate},
+            n_samples_per_label=n_samples_per_label if n_samples_per_label > 0 else None,
+        )
     elif model_type == "scpoli":
         # scPoli's constructor defaults labeled_indices to range(len(adata)) and looks up
         # cell types via adata.obs[celltype_obs][range(len(adata))]. AnnData always keeps
@@ -171,14 +199,28 @@ def train(
         adata.obsm[latent_key] = model.get_latent(adata, mean=True)
     else:
         adata.obsm[latent_key] = model.get_latent_representation()
+    # weighted_knn_transfer scores a query cell by summing its neighbours' distance weights per
+    # label, so each label's vote is proportional to its abundance among those neighbours - an
+    # unbalanced reference systematically pulls boundary cells onto its largest classes. Capping
+    # cells per label equalises that prior; it also bounds weighted_knn_trainer's index, which is
+    # a brute-force KNeighborsTransformer and therefore scans every reference cell per query.
+    # Both the index and the label CSV must come from the same subset in the same order, since
+    # weighted_knn_transfer indexes ref_adata_obs positionally against the index's rows.
+    knn_idx = _balanced_label_indices(adata.obs[celltype_obs], max_cells_per_label)
+    knn_adata = adata[knn_idx]
+    if len(knn_idx) < adata.n_obs:
+        print(
+            f"Capping the KNN reference at {max_cells_per_label} cells per label: "
+            f"{len(knn_idx)}/{adata.n_obs} cells retained."
+        )
     knn_model = sca.utils.knn.weighted_knn_trainer(
-        train_adata=adata,
+        train_adata=knn_adata,
         train_adata_emb=latent_key,
         n_neighbors=knn_neighbors,
     )
     with open(os.path.join(out_model, "knn_classifier.pkl"), "wb") as f:
         pickle.dump(knn_model, f)
-    adata.obs[[celltype_obs]].to_csv(os.path.join(out_model, "knn_ref_labels.csv"), index=False)
+    knn_adata.obs[[celltype_obs]].to_csv(os.path.join(out_model, "knn_ref_labels.csv"), index=False)
 
 
 def main():
@@ -196,6 +238,8 @@ def main():
     parser.add_argument("--dropout_rate", type=float, default=0.2, help="Dropout rate for the encoder/decoder (SCVI/SCANVI: dropout_rate; scPoli: dr_rate).")
     parser.add_argument("--learning_rate", type=float, default=1e-3, help="Optimizer learning rate (SCVI/SCANVI: plan_kwargs['lr']; scPoli: lr). Applied to all training stages, including SCANVI fine-tuning.")
     parser.add_argument("--knn_neighbors", type=int, default=50, help="Number of neighbors for the weighted-KNN label-transfer classifier fit on the reference latent space.")
+    parser.add_argument("--n_samples_per_label", type=int, default=0, help="SCANVI only: cells sampled per label per epoch during the fine-tuning stage, so an unbalanced reference doesn't dominate the classification head. 0 uses scvi-tools' unbalanced default.")
+    parser.add_argument("--max_cells_per_label", type=int, default=0, help="Cap on reference cells per label when fitting the weighted-KNN classifier, which equalizes its abundance-driven label prior (and bounds its brute-force neighbor index). 0 uses every cell.")
     parser.add_argument("--use_gpu", action="store_true", help="Train on GPU instead of CPU.")
     args = parser.parse_args()
 
@@ -213,6 +257,8 @@ def main():
         args.dropout_rate,
         args.learning_rate,
         args.knn_neighbors,
+        args.n_samples_per_label,
+        args.max_cells_per_label,
         args.use_gpu
     )
 

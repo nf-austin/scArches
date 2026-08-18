@@ -39,6 +39,66 @@ def _patch_scpoli_get_latent_train():
     scPoliTrainer.get_latent_train = get_latent_train
 
 
+def _reference_var_names(adata: ad.AnnData, in_model: str, model_type: str) -> pd.Index:
+    """The gene panel the reference model was trained on, read without altering `adata`."""
+    if model_type == "scpoli":
+        # scPoli isn't an scvi-tools ArchesMixin so it has no prepare_query_anndata() to ask.
+        # scArches' BaseMixin.save() writes the reference panel next to the weights as a plain
+        # newline-delimited list, which is what scPoli.load_query_data itself reads back.
+        var_names = np.genfromtxt(
+            os.path.join(in_model, "var_names.csv"), delimiter=",", dtype=str
+        )
+        return pd.Index(np.atleast_1d(var_names).astype(str))
+    # return_reference_var_names=True returns before any of the padding/reordering work, so
+    # passing our real adata here leaves it untouched.
+    model_cls = sca.models.SCANVI if model_type == "scanvi" else sca.models.SCVI
+    return pd.Index(
+        model_cls.prepare_query_anndata(adata, in_model, return_reference_var_names=True)
+    ).astype(str)
+
+
+def _check_gene_overlap(adata: ad.AnnData, ref_var_names: pd.Index, min_overlap: float):
+    """Report (and optionally reject) how much of the reference panel the query is missing.
+
+    Both prepare_query_anndata() and scPoli.load_query_data() silently zero-fill any reference
+    gene absent from the query. That padding is not neutral: it hits low-UMI cell types (T/NK
+    cells especially) hardest, because once their few informative genes are zeroed they have
+    almost nothing left to place them and they collapse onto whichever dense reference
+    neighbourhood survives. Surfacing the fraction turns a silent distortion into a hard signal.
+    """
+    ref = pd.Index(ref_var_names.astype(str)).unique()
+    query_vars = pd.Index(adata.var_names.astype(str))
+    present = ref.isin(query_vars)
+    n_shared, n_ref = int(present.sum()), len(ref)
+    frac = n_shared / n_ref if n_ref else 0.0
+
+    print(
+        f"[gene-overlap] {n_shared}/{n_ref} ({frac:.1%}) reference genes present in the query; "
+        f"{n_ref - n_shared} will be zero-filled."
+    )
+    if n_shared < n_ref:
+        missing = ref[~present]
+        print(f"[gene-overlap] first missing: {', '.join(missing[:10])}")
+        # A large miss is far more often an identifier-namespace mismatch than a genuinely
+        # different panel, so name that likely culprit rather than just reporting the count.
+        ref_ens = float(ref.str.startswith("ENSG").mean())
+        query_ens = float(query_vars.str.startswith("ENSG").mean())
+        if abs(ref_ens - query_ens) > 0.5:
+            print(
+                f"[gene-overlap] reference var_names are {ref_ens:.0%} Ensembl-style vs "
+                f"{query_ens:.0%} in the query - the two panels are probably keyed on different "
+                "identifiers (Ensembl gene IDs vs gene symbols). Re-key one side before mapping."
+            )
+
+    if frac < min_overlap:
+        raise ValueError(
+            f"Only {frac:.1%} of the {n_ref} reference genes are present in the query, below the "
+            f"--min_gene_overlap threshold of {min_overlap:.1%}. Mapping through a mostly "
+            "zero-filled panel yields a distorted latent space and confident-but-wrong label "
+            "transfer. Fix the gene identifiers/panel, or pass --min_gene_overlap 0 to map anyway."
+        )
+
+
 def integrate(
     adata: ad.AnnData,
     output_h5ad: str,
@@ -49,6 +109,7 @@ def integrate(
     sample_id: str,
     max_epochs: int,
     batch_size: int = 128,
+    min_gene_overlap: float = 0.9,
     use_gpu: bool = False,
     use_knn: bool = False
 ):
@@ -70,6 +131,11 @@ def integrate(
     # Ensure raw counts are stored in .layers["counts"] as required by scvi-tools
     if "counts" not in adata.layers:
         adata.layers["counts"] = adata.X.copy()
+
+    # Checked before the surgery calls below, since those are what pad the missing genes away.
+    _check_gene_overlap(
+        adata, _reference_var_names(adata, in_model, model_type), min_gene_overlap
+    )
 
     if model_type == "scvi":
         sca.models.SCVI.prepare_query_anndata(adata, in_model)
@@ -159,6 +225,7 @@ def main():
     parser.add_argument("--sample_id", required=True, help="Label used for this file's batch/dataset if --dataset_obs isn't already present in the input.")
     parser.add_argument("--max_epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=128, help="Minibatch size for model.train().")
+    parser.add_argument("--min_gene_overlap", type=float, default=0.9, help="Fail if fewer than this fraction of the reference model's genes are present in the query (the rest get silently zero-filled by the scArches surgery). 0 disables the check.")
     parser.add_argument("--use_gpu", action="store_true", help="Integrate on GPU instead of CPU.")
     parser.add_argument("--use_knn", action="store_true", help="Use a weighted knn classifier instead of directly querying the trained model. Always on for scvi, which has no native classifier.")
     args = parser.parse_args()
@@ -173,6 +240,7 @@ def main():
         args.sample_id,
         args.max_epochs,
         args.batch_size,
+        args.min_gene_overlap,
         args.use_gpu,
         args.use_knn
     )

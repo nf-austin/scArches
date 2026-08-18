@@ -15,6 +15,8 @@ process TRAIN_MODEL {
         val dropout_rate
         val learning_rate
         val knn_neighbors
+        val n_samples_per_label
+        val max_cells_per_label
         val use_gpu
 
     output:
@@ -37,6 +39,8 @@ process TRAIN_MODEL {
         --dropout_rate ${dropout_rate} \\
         --learning_rate ${learning_rate} \\
         --knn_neighbors ${knn_neighbors} \\
+        --n_samples_per_label ${n_samples_per_label} \\
+        --max_cells_per_label ${max_cells_per_label} \\
         ${gpu_flag}
     """
 }
@@ -54,6 +58,7 @@ process APPLY_MODEL {
     val dataset_obs
     val max_epochs
     val batch_size
+    val min_gene_overlap
     val use_gpu
     val use_knn
 
@@ -74,6 +79,7 @@ process APPLY_MODEL {
         --sample_id "${sample_id}" \\
         --max_epochs ${max_epochs} \\
         --batch_size ${batch_size} \\
+        --min_gene_overlap ${min_gene_overlap} \\
         ${gpu_flag} ${knn_flag}
     """
 }

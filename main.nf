@@ -38,6 +38,8 @@ workflow {
             params.dropout_rate,
             params.learning_rate,
             params.knn_neighbors,
+            params.n_samples_per_label,
+            params.max_cells_per_label,
             params.use_gpu
         )
         COMPRESS(TRAIN_MODEL.out.model_dir)
@@ -58,7 +60,8 @@ workflow {
         params.celltype_obs,
         params.dataset_obs,
         params.integrate_max_epochs,
-        params.batch_size,
+        params.integrate_batch_size,
+        params.min_gene_overlap,
         params.use_gpu,
         params.use_knn
     )
