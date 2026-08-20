@@ -8,8 +8,9 @@ SCANVI/scPoli) cell type labels.
 
 ## Pipeline steps
 
-1. **TRAIN_MODEL** (`scvi-tools`/`scArches`) — Trains a reference model (SCVI, SCANVI, or scPoli) on
-   `--train_h5ad`. Skipped when `--train_model false`.
+1. **TRAIN_MODEL** (`scvi-tools`/`scArches`) — Drops genes that are structurally absent from whole
+   datasets (see [Reference gene panel](#reference-gene-panel)), calls HVGs, then trains a reference
+   model (SCVI, SCANVI, or scPoli) on `--train_h5ad`. Skipped when `--train_model false`.
 2. **COMPRESS** / **DECOMPRESS** (`tar`) — Packages the trained model directory into a single
    `<model_name>.tar.gz` artifact published to `results/`, and unpacks it again on later runs that
    reuse the model instead of retraining.
@@ -34,6 +35,35 @@ SCANVI/scPoli) cell type labels.
 `--model_name` must match between the run that trains the model and any later run reusing it:
 training publishes `results/<model_name>.tar.gz`, and a `--train_model false` run reads that same
 path back in.
+
+## Reference gene panel
+
+A reference stitched together from several sub-atlases by an outer join keeps genes present in only
+some sources and zero-fills them in the rest. Those structural zeros are not biology — the model
+learns them as near-perfect sub-atlas discriminators, so a query with a complete panel carries real
+signal in them and maps to whichever sub-atlas "has" them rather than to its own tissue. In a
+unified lung+brain reference this surfaces as lung myeloid cells labelled Microglia, because MRC1
+and FCN1 are nonzero only on the brain side.
+
+`TRAIN_MODEL` drops any gene detected in fewer than `--min_dataset_detection` of the
+`--dataset_obs` levels, before HVG selection — a gene that is zero across half the datasets and
+expressed across the other half looks enormously variable, so leaving the filter until later lets
+the artifacts get picked *as* HVGs. Progress lines are prefixed `[panel]` and report the absence
+pattern per dataset, which is worth reading: a single dataset responsible for most of the dropped
+genes is usually cheaper to exclude from the reference than to make every other dataset pay for.
+
+The threshold is a fraction rather than a count so that it scales with however many datasets the
+reference has — the requirement can never exceed the levels that exist, and a single-dataset
+reference resolves to `1`. The default of `1.0` requires every dataset, which is the exact
+intersection of their panels. Lower it only when you know a particular source is missing genes you
+want to keep, and bear in mind that a partially-present gene is exactly the kind that acts as a
+sub-atlas discriminator.
+
+Genuinely tissue-restricted genes survive the filter, because ambient RNA puts them at some low
+level in every dataset — SFTPC is detected atlas-wide even though only lung has AT2 cells. Only
+never-measured genes are *exactly* zero. Gene-symbol synonyms split across annotation releases
+(`MARCH8` vs `MARCHF8`) are dropped rather than merged, since each half is absent from the datasets
+that used the other name.
 
 ## Query gene panel
 
@@ -100,6 +130,7 @@ nextflow run nf-austin/scArches \
 | `--train_max_epochs`     | `200`         | Max training epochs for `TRAIN_MODEL`.                                                                                                                           |
 | `--finetune_epochs`      | `20`          | SCANVI fine-tuning epochs after the SCVI pretraining stage.                                                                                                      |
 | `--integrate_max_epochs` | `100`         | Max epochs for `APPLY_MODEL`'s query mapping.                                                                                                                    |
+| `--min_dataset_detection`| `1.0`         | Fraction of the `--dataset_obs` levels a gene must be detected in to survive into training (`1.0` = all of them); removes genes an outer-join reference merge left structurally zero in whole sub-atlases. `0` disables, as does a blank `--dataset_obs`. See [Reference gene panel](#reference-gene-panel). |
 | `--min_gene_overlap`     | `0.9`         | Fraction of the reference model's genes that must be present in a query file before `APPLY_MODEL` will map it; the rest are silently zero-filled by the surgery. `0` disables the check. See [Query gene panel](#query-gene-panel). |
 | `--n_layers`             | `3`           | Number of hidden layers in the encoder/decoder (SCVI/SCANVI: `n_layers`; scPoli: repeats its own default layer width `n_layers` times via `hidden_layer_sizes`). |
 | `--dropout_rate`         | `0.2`         | Dropout rate applied in the encoder/decoder (SCVI/SCANVI: `dropout_rate`; scPoli: `dr_rate`, whose own default is `0.05`).                                       |

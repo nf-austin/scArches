@@ -40,6 +40,7 @@ workflow {
             params.knn_neighbors,
             params.n_samples_per_label,
             params.max_cells_per_label,
+            params.min_dataset_detection,
             params.use_gpu
         )
         COMPRESS(TRAIN_MODEL.out.model_dir)

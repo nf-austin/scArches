@@ -35,6 +35,78 @@ def _patch_scpoli_get_latent_train():
     scPoliTrainer.get_latent_train = get_latent_train
 
 
+def _dataset_detection(adata: ad.AnnData, dataset_obs: str, chunk_size: int = 100_000) -> pd.DataFrame:
+    """genes x datasets matrix of "cells with > 0 counts", accumulated in row chunks.
+
+    Chunked because `adata.layers["counts"] > 0` over a multi-million-cell reference would
+    materialise a second copy of the whole matrix; this bounds peak memory at chunk_size rows.
+    """
+    codes = adata.obs[dataset_obs].astype("category")
+    levels = list(codes.cat.categories)
+    code_values = codes.cat.codes.to_numpy()
+    counts = np.zeros((adata.n_vars, len(levels)), dtype=np.int64)
+
+    for start in range(0, adata.n_obs, chunk_size):
+        stop = min(start + chunk_size, adata.n_obs)
+        detected = adata.layers["counts"][start:stop] > 0
+        block_codes = code_values[start:stop]
+        for j in range(len(levels)):
+            mask = block_codes == j
+            if mask.any():
+                counts[:, j] += np.asarray(detected[mask].sum(axis=0)).ravel()
+
+    return pd.DataFrame(counts, index=adata.var_names, columns=levels)
+
+
+def _drop_dataset_absent_genes(adata: ad.AnnData, dataset_obs: str, min_fraction: float):
+    """Drop genes detected in fewer than `min_fraction` of the dataset levels, in place.
+
+    A unified reference assembled from several sub-atlases by an outer join keeps genes present
+    in only some sources and zero-fills them in the rest. Those structural zeros are not biology:
+    the model learns them as near-perfect sub-atlas discriminators, so a query with a complete
+    panel carries real signal in them and maps to whichever sub-atlas "has" them rather than to
+    its own tissue. In a lung+brain reference this surfaces as lung myeloid cells labelled
+    Microglia, because MRC1/FCN1 are nonzero only on the brain side.
+
+    Genuinely tissue-restricted genes survive this filter in practice: ambient RNA puts them at
+    some low level in every dataset, so SFTPC is detected atlas-wide even though only lung has
+    AT2 cells. Only never-measured genes are *exactly* zero.
+
+    Gene-symbol synonyms split across annotation releases (MARCH8 vs MARCHF8) are dropped rather
+    than merged - each half is absent from the datasets that used the other name.
+    """
+    detection = _dataset_detection(adata, dataset_obs)
+    n_datasets = detection.shape[1]
+    absent = detection == 0
+    n_present = (~absent).sum(axis=1)
+    # Expressing the requirement as a fraction makes it self-scaling: it can never exceed the
+    # number of levels that exist, so a single-dataset reference simply requires 1. The min() only
+    # guards against a value above 1.0 being passed.
+    required = max(0, min(int(np.ceil(min_fraction * n_datasets)), n_datasets))
+    keep = n_present >= required
+
+    print(f"[panel] {n_datasets} datasets, {adata.n_vars} genes")
+    print(
+        "[panel]   genes by number of datasets absent from: "
+        + ", ".join(f"{k}:{v}" for k, v in absent.sum(axis=1).value_counts().sort_index().items())
+    )
+    per_dataset = absent.sum(axis=0)
+    print(
+        "[panel]   genes absent per dataset: "
+        + ", ".join(f"{d}={int(n)}" for d, n in per_dataset.sort_values(ascending=False).items())
+    )
+    if not keep.all():
+        dropped = list(keep.index[~keep])
+        print(
+            f"[panel] dropping {len(dropped)} genes detected in fewer than {required}/"
+            f"{n_datasets} datasets; {int(keep.sum())} retained"
+        )
+        print(f"[panel]   first dropped: {', '.join(map(str, dropped[:20]))}")
+        adata._inplace_subset_var(keep.to_numpy())
+    else:
+        print(f"[panel] every gene is detected in at least {required}/{n_datasets} datasets")
+
+
 def _balanced_label_indices(labels: pd.Series, max_per_label: int, seed: int = 0) -> np.ndarray:
     """Positional indices that cap each label at `max_per_label` cells (<=0 keeps everything)."""
     if max_per_label <= 0:
@@ -66,6 +138,7 @@ def train(
     knn_neighbors: int = 50,
     n_samples_per_label: int = 0,
     max_cells_per_label: int = 0,
+    min_dataset_detection: float = 1.0,
     use_gpu: bool = False
 ):
     accelerator = "gpu" if use_gpu else "cpu"
@@ -79,6 +152,15 @@ def train(
         adata.obs["batch"] = "batch_0"
         dataset_obs = "batch"
 
+    # Runs before HVG selection so the panel artifacts can't be picked as HVGs - a gene that is
+    # zero across half the datasets and expressed across the other half looks enormously variable.
+    # With no --dataset_obs there is nothing to compare across, so the fraction collapses to 0
+    # (off); a single-level column resolves to a requirement of 1, which is a no-op beyond
+    # dropping genes that are zero everywhere.
+    detection_fraction = min_dataset_detection if has_batch_obs else 0.0
+    if detection_fraction > 0:
+        _drop_dataset_absent_genes(adata, dataset_obs, detection_fraction)
+
     # Call HVGs
     if adata.shape[1] > n_hvgs:
         sc.pp.highly_variable_genes(
@@ -88,6 +170,13 @@ def train(
             flavor="seurat_v3",
             layer="counts",
             subset=True
+        )
+    else:
+        # Worth saying out loud: a reference that arrives pre-subset to <= n_hvgs genes skips this
+        # step entirely, so --n_hvgs silently has no effect and the model trains on the full panel.
+        print(
+            f"Skipping HVG selection: the reference has {adata.shape[1]} genes, "
+            f"already at or below --n_hvgs ({n_hvgs}). Training on all of them."
         )
 
     if model_type == "scvi":
@@ -240,6 +329,7 @@ def main():
     parser.add_argument("--knn_neighbors", type=int, default=50, help="Number of neighbors for the weighted-KNN label-transfer classifier fit on the reference latent space.")
     parser.add_argument("--n_samples_per_label", type=int, default=0, help="SCANVI only: cells sampled per label per epoch during the fine-tuning stage, so an unbalanced reference doesn't dominate the classification head. 0 uses scvi-tools' unbalanced default.")
     parser.add_argument("--max_cells_per_label", type=int, default=0, help="Cap on reference cells per label when fitting the weighted-KNN classifier, which equalizes its abundance-driven label prior (and bounds its brute-force neighbor index). 0 uses every cell.")
+    parser.add_argument("--min_dataset_detection", type=float, default=1.0, help="Fraction of the --dataset_obs levels a gene must be detected in to be kept (1.0 = all of them). Removes genes that an outer-join reference merge left structurally zero in whole sub-atlases, which the model would otherwise learn as sub-atlas discriminators. 0 disables; no --dataset_obs also disables.")
     parser.add_argument("--use_gpu", action="store_true", help="Train on GPU instead of CPU.")
     args = parser.parse_args()
 
@@ -259,6 +349,7 @@ def main():
         args.knn_neighbors,
         args.n_samples_per_label,
         args.max_cells_per_label,
+        args.min_dataset_detection,
         args.use_gpu
     )
 

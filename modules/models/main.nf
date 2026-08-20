@@ -17,6 +17,7 @@ process TRAIN_MODEL {
         val knn_neighbors
         val n_samples_per_label
         val max_cells_per_label
+        val min_dataset_detection
         val use_gpu
 
     output:
@@ -41,6 +42,7 @@ process TRAIN_MODEL {
         --knn_neighbors ${knn_neighbors} \\
         --n_samples_per_label ${n_samples_per_label} \\
         --max_cells_per_label ${max_cells_per_label} \\
+        --min_dataset_detection ${min_dataset_detection} \\
         ${gpu_flag}
     """
 }
