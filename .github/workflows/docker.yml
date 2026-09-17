@@ -31,9 +31,12 @@ jobs:
       matrix:
         include:
           # Multi-arch so it runs natively on Apple Silicon for local testing.
+          # amd64 only, like the CUDA variant. The numpy<2 pin scArches needs
+          # has no arm64 wheel for this Python, so an arm64 build compiles it
+          # from source under QEMU and fails during metadata generation.
           - variant: cpu
             base: python:3.11-slim
-            platforms: linux/amd64,linux/arm64
+            platforms: linux/amd64
             suffix: ''
           # CUDA bases are amd64 only, and already ship torch.
           - variant: cuda
