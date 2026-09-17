@@ -31,7 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #
 # The scArches commit stays pinned -- that is the reproducibility anchor -- and
 # scanpy / anndata / scvi-tools resolve to whatever it actually requires.
+#
+# numpy<2 is required, not cosmetic: scArches holds pandas at 1.5.3, whose C
+# extension is built against the numpy 1.x ABI. Left free, pip installs numpy 2
+# and `import pandas` dies with "numpy.dtype size changed ... Expected 96 from C
+# header, got 88". Verified by resolving the tree in this base image.
 RUN pip install --no-cache-dir \
+        "numpy<2" \
         "git+https://github.com/theislab/scarches.git@d35cde61fff4dec6b86660817f4750fa35ff836d" \
         matplotlib \
         scikit-learn
