@@ -1,5 +1,8 @@
 process TRAIN_MODEL {
     conda "${moduleDir}/environment.yml"
+    // Container comes from the process-level default in nextflow.config.
+    // Scripts live in bin/ and are called bare: Nextflow puts $projectDir/bin
+    // on PATH and bind-mounts it into the container.
 
     input:
         path train_h5ad
@@ -26,7 +29,7 @@ process TRAIN_MODEL {
     script:
     def gpu_flag = use_gpu ? '--use_gpu' : ''
     """
-    python3 ${moduleDir}/train.py \\
+    train.py \\
         --train_h5ad ${train_h5ad} \\
         --out_model ${model_name} \\
         --model_type ${model_type} \\
@@ -44,6 +47,13 @@ process TRAIN_MODEL {
         --max_cells_per_label ${max_cells_per_label} \\
         --min_dataset_detection ${min_dataset_detection} \\
         ${gpu_flag}
+    """
+
+    stub:
+    """
+    mkdir -p ${model_name}
+    touch ${model_name}/model.pt ${model_name}/knn_classifier.pkl
+    echo 'label' > ${model_name}/knn_ref_labels.csv
     """
 }
 
@@ -71,7 +81,7 @@ process APPLY_MODEL {
     def gpu_flag = use_gpu ? '--use_gpu' : ''
     def knn_flag = use_knn ? '--use_knn' : ''
     """
-    python3 ${moduleDir}/integrate.py \\
+    integrate.py \\
         --input_h5ad ${h5ad} \\
         --output_h5ad ${sample_id}_integrated.h5ad \\
         --in_model ${model_dir} \\
@@ -83,5 +93,10 @@ process APPLY_MODEL {
         --batch_size ${batch_size} \\
         --min_gene_overlap ${min_gene_overlap} \\
         ${gpu_flag} ${knn_flag}
+    """
+
+    stub:
+    """
+    touch ${sample_id}_integrated.h5ad
     """
 }

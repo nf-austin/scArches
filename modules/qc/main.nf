@@ -13,10 +13,15 @@ process MAKE_REPORT {
 
     script:
     """
-    python3 ${moduleDir}/report.py \\
+    report.py \\
         --input_h5ad ${combined_h5ad} \\
         --output_pdf qc_report.pdf \\
         --latent_key ${latent_key} \\
         --celltype_obs "${celltype_obs}"
+    """
+
+    stub:
+    """
+    touch qc_report.pdf
     """
 }

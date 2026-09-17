@@ -26,7 +26,8 @@ SCANVI/scPoli) cell type labels.
 ## Requirements
 
 - Nextflow >= 24.04.0
-- Docker, Singularity, or Conda
+- Docker (local) or Singularity/Apptainer (HPC); Conda works as a fallback
+- Optional: a SLURM cluster, and a GPU for training — see [HPC / SLURM](#hpc--slurm)
 - For `--use_gpu true`: a CUDA-capable GPU and, for the `docker`/`singularity` profiles, the
   NVIDIA Container Toolkit (or equivalent) so the container runtime can pass the GPU through
 
@@ -118,12 +119,14 @@ nextflow run nf-austin/scArches \
 
 | Parameter                | Default       | Description                                                                                                                                                      |
 |--------------------------|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--h5ad_dir`             | `data/*.h5ad` | Glob pattern for query h5ad files to integrate.                                                                                                                  |
+| `--input`                | _(one of these two)_ | Samplesheet CSV of query datasets, columns `sample,h5ad`. |
+| `--h5ad_dir`             | _(one of these two)_ | Glob pattern for query h5ad files to integrate. |
 | `--outdir`               | `results`     | Output directory.                                                                                                                                                |
 | `--train_model`          | `true`        | Train a new reference model; set to `false` to reuse an existing one.                                                                                            |
 | `--model_type`           | `SCANVI`      | Reference model backend: `SCVI`, `SCANVI`, or `SCPOLI`.                                                                                                          |
 | `--model_name`           | `model`       | Name of the model artifact (`<model_name>.tar.gz` under `--outdir`).                                                                                             |
-| `--train_h5ad`           | _(none)_      | Reference dataset to train on. Required when `--train_model true`.                                                                                               |
+| `--train_h5ad`           | _(none)_      | Reference dataset to train on. Required when `--train_model true`. |
+| `--model_tarball`        | _(none)_      | Trained model archive to reuse. Required when `--train_model false` on Platform, where `<outdir>/<model_name>.tar.gz` will not exist. |
 | `--dataset_obs`          | _(empty)_     | obs column identifying batches/datasets. Blank treats all cells as one batch.                                                                                    |
 | `--celltype_obs`         | `cell_type`   | obs column with reference cell type labels.                                                                                                                      |
 | `--n_hvgs`               | `6000`        | Number of highly variable genes used for training.                                                                                                               |
@@ -146,6 +149,17 @@ nextflow run nf-austin/scArches \
 | `--max_cpus`             | `32`          | CPU cap applied to all processes.                                                                                                                                |
 | `--max_time`             | `72.h`        | Runtime cap applied to all processes.                                                                                                                            |
 
+| `--scarches_container`     | `ghcr.io/nf-austin/scarches:1.0.0`      | CPU image (multi-arch). |
+| `--scarches_container_gpu` | `ghcr.io/nf-austin/scarches:1.0.0-cuda` | CUDA image, used with `--use_gpu true`. |
+| `--scarches_container_any` | _(auto)_      | Pin a specific image, overriding the CPU/GPU selection. |
+| `--gpu_cluster_options`  | `--gres=gpu:1` | sbatch options used to request a GPU on SLURM, which ignores `accelerator`. Combined with `--cluster_options`. |
+| `--slurm_queue`          | _(cluster default)_ | SLURM partition (`sbatch --partition`). Used by `-profile slurm`. |
+| `--slurm_account`        | _(none)_      | SLURM account to charge (`sbatch --account`). |
+| `--cluster_options`      | _(none)_      | Raw sbatch options added to every job. Use the `=` form for values starting with `--`. |
+| `--singularity_cache_dir` | `$NXF_SINGULARITY_CACHEDIR` | Shared directory for pulled images. |
+| `--conda_cache_dir`      | `$NXF_CONDA_CACHEDIR` | Shared directory for conda environments. |
+| `--singularity_bind`     | _(none)_      | Extra bind mounts, comma-separated, e.g. `/mnt/gpfs,/scratch`. |
+
 ## Output structure
 
 ```text
@@ -155,3 +169,84 @@ results/
 │                                 #   X_scVI/X_scANVI/X_scPoli, predicted_cell_type
 └── qc_report.pdf                # UMAP QC report over the merged, integrated dataset
 ```
+
+## Seqera Platform (Nextflow Tower)
+
+The repo ships everything Platform needs:
+
+- **`nextflow_schema.json`** — renders the launch form. `--input` appears as a file picker wired to
+  Data Explorer, options are grouped by stage, and tuning knobs are marked hidden.
+- **`assets/schema_input.json`** — the samplesheet contract (`sample`, `h5ad`) for the **query**
+  datasets. The reference atlas is separate: `--train_h5ad`.
+- **`tower.yml`** — puts the QC report, the merged h5ad and the trained model archive in the run's
+  **Reports** tab.
+
+To add it: **Pipelines → Add pipeline**, point at this repository, and pick a compute environment.
+Use **absolute paths** for `--input`, the h5ads it references, `--train_h5ad` and `--outdir`.
+
+**Reusing a model on Platform needs `--model_tarball`.** With `--train_model false` the pipeline
+otherwise looks for `<outdir>/<model_name>.tar.gz`, which only resolves when a previous run wrote
+there — not true on a fresh scratch directory.
+
+## HPC / SLURM
+
+The `slurm` profile sets only the executor and queue, so it composes with an engine profile in
+either order:
+
+```bash
+nextflow run nf-austin/scArches \
+    -profile slurm,singularity \
+    --slurm_queue gpu \
+    --use_gpu true \
+    --input /mnt/gpfs/project/queries.csv \
+    --train_h5ad /mnt/gpfs/project/reference.h5ad \
+    --outdir /mnt/gpfs/project/results \
+    --singularity_cache_dir /mnt/gpfs/shared/singularity
+```
+
+- **GPU jobs need `--gres`, not `accelerator`.** The SLURM executor silently drops Nextflow's
+  `accelerator` directive — verified on 26.04: `cpus` becomes `-c` and `memory` becomes `--mem`, but
+  no `--gres` line is emitted. `--use_gpu true` therefore adds `--gpu_cluster_options` (default
+  `--gres=gpu:1`) to the sbatch options for `TRAIN_MODEL` and `APPLY_MODEL`. Adjust for your site,
+  e.g. `--gpu_cluster_options='--gres=gpu:a100:1'`. Your own `--cluster_options` is *combined* with
+  it, not replaced.
+- **Quote option values that start with `--` using the `=` form.** `--cluster_options '--qos=long'`
+  is parsed by Nextflow as a bare flag followed by a separate `--qos` parameter, and the job ends up
+  with a literal `true` in its sbatch header. Write `--cluster_options='--qos=long'`.
+- **Under Singularity, `--nv` and `-B` binds are combined**, so requesting a GPU does not drop your
+  bind mounts and vice versa.
+- **Use absolute paths** for every input and for `--outdir`.
+- **Put `--singularity_cache_dir` on shared storage.** `$HOME` is usually quota-limited and is not
+  always mounted on compute nodes.
+- **`--singularity_bind` is the escape hatch for symlinked filesystems.** `autoMounts` binds only
+  the paths Nextflow resolved itself; if `/data` is a symlink to `/mnt/gpfs/...`, the container sees
+  a dangling link and reports a missing file. Bind the real parent.
+- **Seqera Platform already sets the executor** when you launch against a SLURM compute environment,
+  so `-profile slurm` is mainly for launching by hand from a login node.
+
+## Container images
+
+Built from `modules/models/Dockerfile` and published to GHCR by `.github/workflows/docker.yml`:
+
+| Tag | Base | Platforms | Used when |
+| --- | --- | --- | --- |
+| `ghcr.io/nf-austin/scarches:<ver>` | `python:3.11-slim` | amd64, arm64 | default (CPU) |
+| `ghcr.io/nf-austin/scarches:<ver>-cuda` | PyTorch CUDA runtime | amd64 | `--use_gpu true` |
+
+One image serves every process — the scArches stack is a superset of what the QC, concat and
+compress steps need. A custom image rather than a public biocontainer because **scArches is not
+packaged on conda-forge or Bioconda**; it installs from a git ref.
+
+**The git ref is pinned to a commit, not `@master`.** An unpinned ref makes every environment build a
+different one. Bump the SHA in `modules/models/Dockerfile` and `modules/models/environment.yml`
+together when you want a newer scArches. The GHCR packages must be **public** for `nextflow run` to
+pull them without credentials.
+
+Every module also ships an `environment.yml`, so `-profile conda` remains a working fallback.
+
+## Notes
+
+- `nextflow run . -stub-run --input assets/samplesheet_example.csv --train_h5ad ref.h5ad` exercises
+  the real channel wiring and publishing with no containers and no data.
+- `nextflow lint main.nf nextflow.config modules/*/main.nf` catches config errors that `-preview`
+  accepts.

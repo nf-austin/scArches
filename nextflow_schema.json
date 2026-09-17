@@ -1,0 +1,378 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/nf-austin/scArches/main/nextflow_schema.json",
+  "title": "nf-austin/scArches pipeline parameters",
+  "description": "Automated scArches-based integration and label transfer.",
+  "type": "object",
+  "definitions": {
+    "input_output_options": {
+      "title": "Input/output options",
+      "type": "object",
+      "fa_icon": "fas fa-terminal",
+      "description": "Query datasets to map, and where results go.",
+      "required": [
+        "outdir"
+      ],
+      "properties": {
+        "input": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "schema": "assets/schema_input.json",
+          "mimetype": "text/csv",
+          "pattern": "^\\S+\\.(csv|tsv|txt)$",
+          "fa_icon": "fas fa-file-csv",
+          "description": "Samplesheet CSV listing the QUERY datasets to map.",
+          "help_text": "Columns: `sample` and `h5ad`. The reference atlas is separate -- pass it via `--train_h5ad`. Mutually exclusive with `--h5ad_dir`."
+        },
+        "h5ad_dir": {
+          "type": "string",
+          "fa_icon": "fas fa-folder",
+          "description": "Ad-hoc alternative: a glob matching query .h5ad files.",
+          "help_text": "Mutually exclusive with `--input`."
+        },
+        "outdir": {
+          "type": "string",
+          "default": "results",
+          "format": "directory-path",
+          "fa_icon": "fas fa-folder-open",
+          "description": "Output directory. Use an absolute path on a cluster or on cloud storage."
+        }
+      }
+    },
+    "model_options": {
+      "title": "Model options",
+      "type": "object",
+      "fa_icon": "fas fa-brain",
+      "description": "Train a reference model, or reuse one.",
+      "properties": {
+        "train_model": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-graduation-cap",
+          "description": "Train a reference model from --train_h5ad. Set false to reuse an existing archive."
+        },
+        "train_h5ad": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "fa_icon": "fas fa-book",
+          "description": "Reference atlas to train on. Required when --train_model is true."
+        },
+        "model_tarball": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "fa_icon": "fas fa-file-archive",
+          "description": "Trained model archive to reuse. Required when --train_model is false.",
+          "help_text": "Defaults to `<outdir>/<model_name>.tar.gz`, which only resolves when a previous run wrote there. On Seqera Platform, where each run gets a fresh scratch directory, pass this explicitly."
+        },
+        "model_type": {
+          "type": "string",
+          "default": "SCANVI",
+          "enum": [
+            "SCVI",
+            "SCANVI",
+            "SCPOLI"
+          ],
+          "fa_icon": "fas fa-project-diagram",
+          "description": "Model architecture. SCVI has no native classifier and always uses the weighted-KNN."
+        },
+        "model_name": {
+          "type": "string",
+          "default": "model",
+          "fa_icon": "fas fa-tag",
+          "description": "Name of the model directory and archive.",
+          "hidden": true
+        },
+        "celltype_obs": {
+          "type": "string",
+          "default": "cell_type",
+          "fa_icon": "fas fa-tags",
+          "description": "obs column holding the reference cell type labels."
+        },
+        "dataset_obs": {
+          "type": "string",
+          "fa_icon": "fas fa-layer-group",
+          "description": "obs column identifying batches/datasets. Blank treats the reference as one batch."
+        }
+      }
+    },
+    "preprocessing_options": {
+      "title": "Reference and query gene panels",
+      "type": "object",
+      "fa_icon": "fas fa-filter",
+      "description": "Gene selection and overlap checks.",
+      "properties": {
+        "n_hvgs": {
+          "type": "integer",
+          "default": 6000,
+          "fa_icon": "fas fa-dna",
+          "description": "Highly variable genes used for training."
+        },
+        "min_dataset_detection": {
+          "type": "number",
+          "default": 1.0,
+          "fa_icon": "fas fa-check-double",
+          "description": "Fraction of --dataset_obs levels a gene must be detected in to survive into training.",
+          "help_text": "1.0 requires every dataset, i.e. the intersection of their panels. A reference stitched from sub-atlases by an outer join keeps genes present in only some sources and zero-fills the rest; the model then learns those structural zeros as sub-atlas discriminators. 0 disables, as does leaving --dataset_obs blank."
+        },
+        "min_gene_overlap": {
+          "type": "number",
+          "default": 0.9,
+          "fa_icon": "fas fa-percent",
+          "description": "Fraction of the reference gene panel that must be present in a query before mapping it.",
+          "help_text": "scArches' surgery silently zero-fills missing genes, and that padding hits low-UMI cell types hardest, so a poor overlap shows up as confident-but-wrong label transfer rather than an error. 0 disables the check."
+        }
+      }
+    },
+    "training_options": {
+      "title": "Training options",
+      "type": "object",
+      "fa_icon": "fas fa-sliders-h",
+      "description": "Optimization and architecture.",
+      "properties": {
+        "train_max_epochs": {
+          "type": "integer",
+          "default": 200,
+          "fa_icon": "fas fa-redo",
+          "description": "Max epochs for TRAIN_MODEL."
+        },
+        "finetune_epochs": {
+          "type": "integer",
+          "default": 20,
+          "fa_icon": "fas fa-redo",
+          "description": "SCANVI fine-tuning epochs after SCVI pretraining."
+        },
+        "integrate_max_epochs": {
+          "type": "integer",
+          "default": 100,
+          "fa_icon": "fas fa-redo",
+          "description": "Max epochs for APPLY_MODEL's query mapping."
+        },
+        "batch_size": {
+          "type": "integer",
+          "default": 1024,
+          "fa_icon": "fas fa-th",
+          "description": "Minibatch size for TRAIN_MODEL, over the whole reference."
+        },
+        "integrate_batch_size": {
+          "type": "integer",
+          "default": 128,
+          "fa_icon": "fas fa-th",
+          "description": "Minibatch size for APPLY_MODEL, per query sample.",
+          "help_text": "Deliberately smaller than the reference batch size: a query file holds one sample, so a reference-scale batch leaves the surgery only a few hundred gradient steps and the query lands wherever the frozen encoder puts it."
+        },
+        "n_layers": {
+          "type": "integer",
+          "default": 3,
+          "fa_icon": "fas fa-layer-group",
+          "description": "Hidden layers in the encoder/decoder.",
+          "hidden": true
+        },
+        "dropout_rate": {
+          "type": "number",
+          "default": 0.2,
+          "fa_icon": "fas fa-random",
+          "description": "Dropout rate in the encoder/decoder.",
+          "hidden": true
+        },
+        "learning_rate": {
+          "type": "number",
+          "default": 0.001,
+          "fa_icon": "fas fa-tachometer-alt",
+          "description": "Optimizer learning rate.",
+          "hidden": true
+        },
+        "n_samples_per_label": {
+          "type": "integer",
+          "default": 100,
+          "fa_icon": "fas fa-balance-scale",
+          "description": "SCANVI fine-tuning: cells sampled per label per epoch (0 = off).",
+          "hidden": true
+        },
+        "max_cells_per_label": {
+          "type": "integer",
+          "default": 50000,
+          "fa_icon": "fas fa-balance-scale",
+          "description": "Cap on reference cells per label when fitting the weighted-KNN (0 = all).",
+          "hidden": true
+        },
+        "use_knn": {
+          "type": "boolean",
+          "default": false,
+          "fa_icon": "fas fa-project-diagram",
+          "description": "Transfer labels with the weighted-KNN instead of the model's native classifier."
+        },
+        "knn_neighbors": {
+          "type": "integer",
+          "default": 50,
+          "fa_icon": "fas fa-circle-notch",
+          "description": "Neighbors for the weighted-KNN classifier.",
+          "hidden": true
+        }
+      }
+    },
+    "container_options": {
+      "title": "Container options",
+      "type": "object",
+      "fa_icon": "fas fa-cubes",
+      "description": "Which image the processes run in.",
+      "properties": {
+        "scarches_container": {
+          "type": "string",
+          "default": "ghcr.io/nf-austin/scarches:1.0.0",
+          "fa_icon": "fas fa-box",
+          "description": "CPU image (multi-arch).",
+          "hidden": true
+        },
+        "scarches_container_gpu": {
+          "type": "string",
+          "default": "ghcr.io/nf-austin/scarches:1.0.0-cuda",
+          "fa_icon": "fas fa-box",
+          "description": "CUDA image (linux/amd64 only).",
+          "hidden": true
+        },
+        "scarches_container_any": {
+          "type": "string",
+          "fa_icon": "fas fa-box",
+          "description": "Pin a specific image, overriding the automatic CPU/GPU selection.",
+          "hidden": true
+        }
+      }
+    },
+    "execution_options": {
+      "title": "Execution environment",
+      "type": "object",
+      "fa_icon": "fas fa-server",
+      "description": "GPU, cluster scheduler, image caches and bind mounts.",
+      "help_text": "Use the `slurm` profile together with an engine profile: `-profile slurm,singularity`.",
+      "properties": {
+        "use_gpu": {
+          "type": "boolean",
+          "default": false,
+          "fa_icon": "fas fa-bolt",
+          "description": "Train and apply on GPU. Selects the CUDA image and requests an accelerator.",
+          "help_text": "On SLURM the GPU is requested via --gpu_cluster_options, because that executor ignores Nextflow's `accelerator` directive. Under Docker this adds --gpus all; under Singularity, --nv."
+        },
+        "gpu_cluster_options": {
+          "type": "string",
+          "default": "--gres=gpu:1",
+          "fa_icon": "fas fa-bolt",
+          "description": "sbatch options used to request a GPU when --use_gpu is set.",
+          "help_text": "Adjust to match your site, e.g. '--gres=gpu:a100:1'. Combined with --cluster_options rather than replacing it.",
+          "hidden": true
+        },
+        "slurm_queue": {
+          "type": "string",
+          "fa_icon": "fas fa-stream",
+          "description": "SLURM partition to submit to (sbatch --partition).",
+          "help_text": "Only used with `-profile slurm`. Left unset, no --partition flag is emitted and the cluster default applies."
+        },
+        "slurm_account": {
+          "type": "string",
+          "fa_icon": "fas fa-id-card",
+          "description": "SLURM account to charge (sbatch --account).",
+          "hidden": true
+        },
+        "cluster_options": {
+          "type": "string",
+          "fa_icon": "fas fa-sliders-h",
+          "description": "Raw sbatch options appended to every job, e.g. '--qos=long'.",
+          "hidden": true
+        },
+        "singularity_cache_dir": {
+          "type": "string",
+          "format": "directory-path",
+          "fa_icon": "fas fa-hdd",
+          "description": "Shared directory for pulled Singularity images.",
+          "help_text": "Put this on shared storage the compute nodes can read. $HOME is quota-limited and is not always mounted on compute nodes."
+        },
+        "conda_cache_dir": {
+          "type": "string",
+          "format": "directory-path",
+          "fa_icon": "fas fa-hdd",
+          "description": "Shared directory for created conda environments.",
+          "hidden": true
+        },
+        "singularity_bind": {
+          "type": "string",
+          "fa_icon": "fas fa-link",
+          "description": "Extra paths to bind into the container, comma-separated, e.g. '/mnt/gpfs,/scratch'.",
+          "help_text": "autoMounts only binds paths Nextflow itself resolved. HPC filesystems are routinely symlinked, which shows up as 'file not found' inside the container even though the host path exists."
+        }
+      }
+    },
+    "max_job_request_options": {
+      "title": "Maximum job request options",
+      "type": "object",
+      "fa_icon": "fab fa-acquisitions-incorporated",
+      "description": "Caps applied to every process.",
+      "properties": {
+        "max_cpus": {
+          "type": "integer",
+          "default": 32,
+          "fa_icon": "fas fa-microchip",
+          "description": "Maximum CPUs for any single job.",
+          "hidden": true
+        },
+        "max_memory": {
+          "type": "string",
+          "default": "128.GB",
+          "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+          "fa_icon": "fas fa-memory",
+          "description": "Maximum memory for any single job.",
+          "hidden": true
+        },
+        "max_time": {
+          "type": "string",
+          "default": "72.h",
+          "pattern": "^(\\d+\\.?\\s*(s|m|h|d|day)\\s*)+$",
+          "fa_icon": "far fa-clock",
+          "description": "Maximum time for any single job.",
+          "hidden": true
+        }
+      }
+    },
+    "generic_options": {
+      "title": "Generic options",
+      "type": "object",
+      "fa_icon": "fas fa-file-import",
+      "description": "Rarely changed.",
+      "properties": {
+        "help": {
+          "type": "boolean",
+          "fa_icon": "fas fa-question-circle",
+          "description": "Print the help message and exit.",
+          "hidden": true
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/definitions/input_output_options"
+    },
+    {
+      "$ref": "#/definitions/model_options"
+    },
+    {
+      "$ref": "#/definitions/preprocessing_options"
+    },
+    {
+      "$ref": "#/definitions/training_options"
+    },
+    {
+      "$ref": "#/definitions/container_options"
+    },
+    {
+      "$ref": "#/definitions/execution_options"
+    },
+    {
+      "$ref": "#/definitions/max_job_request_options"
+    },
+    {
+      "$ref": "#/definitions/generic_options"
+    }
+  ]
+}

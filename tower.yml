@@ -1,0 +1,12 @@
+# Files surfaced in the Seqera Platform "Reports" tab after a run.
+reports:
+  qc_report.pdf:
+    display: "Integration QC report -- latent space and label transfer across all samples"
+  combined_annotated.h5ad:
+    display: "All query samples concatenated, with transferred labels"
+  "*.tar.gz":
+    display: "Trained reference model archive (reusable with --model_tarball)"
+  "pipeline_info/execution_report.html":
+    display: "Nextflow execution report (resources, timings, task status)"
+  "pipeline_info/execution_timeline.html":
+    display: "Nextflow execution timeline"

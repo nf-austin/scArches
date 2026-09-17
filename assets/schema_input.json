@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/nf-austin/scArches/main/assets/schema_input.json",
+  "title": "nf-austin/scArches samplesheet",
+  "description": "One row per sample: a QUERY AnnData .h5ad to map onto the reference model.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "sample": {
+        "type": "string",
+        "pattern": "^\\S+$",
+        "errorMessage": "Sample name must be provided and must not contain spaces",
+        "meta": ["id"],
+        "description": "Sample identifier. Becomes the output subdirectory name, so it must be unique."
+      },
+      "h5ad": {
+        "type": "string",
+        "format": "file-path",
+        "exists": true,
+        "pattern": "^\\S+\\.h5ad$",
+        "errorMessage": "h5ad path must be provided, must not contain spaces, and must end in .h5ad",
+        "description": "Path to the query AnnData .h5ad. The reference atlas is passed separately via --train_h5ad."
+      }
+    },
+    "required": ["sample", "h5ad"]
+  }
+}

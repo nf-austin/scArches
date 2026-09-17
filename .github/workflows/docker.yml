@@ -1,0 +1,98 @@
+name: Build and publish containers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modules/models/Dockerfile'
+      - 'modules/models/environment.yml'
+      - '.github/workflows/docker.yml'
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'modules/models/Dockerfile'
+      - 'modules/models/environment.yml'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Multi-arch so it runs natively on Apple Silicon for local testing.
+          - variant: cpu
+            base: python:3.11-slim
+            platforms: linux/amd64,linux/arm64
+            suffix: ''
+          # CUDA bases are amd64 only, and already ship torch.
+          - variant: cuda
+            base: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+            platforms: linux/amd64
+            suffix: '-cuda'
+
+    name: ${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The CUDA base plus torch is multi-GB and the default runner image
+      # leaves little headroom.
+      - name: Free disk space
+        if: matrix.variant == 'cuda'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      - uses: docker/setup-qemu-action@v3
+        if: contains(matrix.platforms, 'arm64')
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Pull requests build but never push, so a broken Dockerfile fails review
+      # instead of shipping.
+      - name: Log in to ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=auto
+            suffix=${{ matrix.suffix }},onlatest=true
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: modules/models
+          file: modules/models/Dockerfile
+          platforms: ${{ matrix.platforms }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.base }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
