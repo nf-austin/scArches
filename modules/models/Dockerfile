@@ -20,8 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # build a different one. Refresh deliberately by bumping the SHA below.
 # (PyPI also publishes scarches releases, e.g. scarches==0.6.1, if you would
 # rather track releases than this branch.)
+# scanpy is capped below 1.10: scArches pins anndata==0.9.2, and scanpy >=1.10
+# imports `anndata.io`, which only exists from anndata 0.10 onward -- the
+# combination fails at import with ModuleNotFoundError: No module named
+# 'anndata.io'. This is the pairing conda resolves to for the same env file.
 RUN pip install --no-cache-dir \
-        'scanpy' \
+        'scanpy>=1.9,<1.10' \
         'anndata==0.9.2' \
         'pandas<2.2' \
         'setuptools<82' \
